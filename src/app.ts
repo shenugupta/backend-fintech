@@ -8,7 +8,7 @@ const app = express();
 
 app.use(express.json());
 
-app.use("/api/auth", authRoutes);
+app.use("/api/v1/auth", authRoutes);
 app.use("/api/wallets", walletRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/kyc", kycRoutes);
