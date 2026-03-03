@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,36 +7,191 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id              String         @id @default(uuid())
-  email           String         @unique
-  passwordHash    String
-  fullName        String
-  isActive        Boolean        @default(true)
-  failedAttempts  Int            @default(0)
-  isLocked        Boolean        @default(false)
-  lockUntil       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
 
-  refreshTokens   RefreshToken[]
-  auditLogs       AuditLog[]
+enum Role {
+  USER
+  ADMIN
+  SUPPORT
+  COMPLIANCE
 }
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BLOCKED
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+}
+
+enum TransactionStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+enum EntryType {
+  DEBIT
+  CREDIT
+}
+
+//////////////////////////////////////////////////////
+// USER
+//////////////////////////////////////////////////////
+
+model User {
+  id           String @id @default(uuid())
+  email        String @unique
+  passwordHash String
+  fullName     String
+
+  role   Role       @default(USER)
+  status UserStatus @default(ACTIVE)
+
+  kyc           Kyc?
+  wallets       Wallet[]
+  auditLogs     AuditLog[]
+  refreshTokens RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////////////////////////////////
+// KYC (One-to-One)
+//////////////////////////////////////////////////////
+
+model Kyc {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  document String // Store S3 URL in production
+  status   KycStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////////////////////////////////
+// WALLET
+//////////////////////////////////////////////////////
+
+model Wallet {
+  id     String @id @default(uuid())
+  userId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  balance  Decimal @db.Decimal(18, 2)
+  currency String // Consider ISO 4217 validation at app layer
+
+  transactionsFrom Transaction[] @relation("fromWallet")
+  transactionsTo   Transaction[] @relation("toWallet")
+  ledgerEntries    LedgerEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+//////////////////////////////////////////////////////
+// TRANSACTION (High-Level Business Record)
+//////////////////////////////////////////////////////
+
+model Transaction {
+  id String @id @default(uuid())
+
+  fromWalletId String?
+  toWalletId   String?
+
+  fromWallet Wallet? @relation("fromWallet", fields: [fromWalletId], references: [id])
+  toWallet   Wallet? @relation("toWallet", fields: [toWalletId], references: [id])
+
+  amount Decimal           @db.Decimal(18, 2)
+  type   TransactionType
+  status TransactionStatus @default(INITIATED)
+
+  // Idempotency key for safe retries (VERY IMPORTANT in fintech)
+  idempotencyKey String? @unique
+
+  ledgerEntries LedgerEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fromWalletId])
+  @@index([toWalletId])
+}
+
+//////////////////////////////////////////////////////
+// LEDGER (Double Entry Accounting)
+//////////////////////////////////////////////////////
+
+model LedgerEntry {
+  id String @id @default(uuid())
+
+  transactionId String
+  walletId      String
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  wallet      Wallet      @relation(fields: [walletId], references: [id])
+
+  entryType EntryType
+  amount    Decimal   @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([walletId])
+}
+
+//////////////////////////////////////////////////////
+// REFRESH TOKEN
+//////////////////////////////////////////////////////
 
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id     String @id @default(uuid())
+  token  String @unique
+  userId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
+//////////////////////////////////////////////////////
+// AUDIT LOG (Compliance Critical)
+//////////////////////////////////////////////////////
+
 model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
-  action    String
-  metadata  Json?
+  id String @id @default(uuid())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  action   String
+  metadata Json?
+
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }

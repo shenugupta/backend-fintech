@@ -1,24 +1,16 @@
 import express from "express";
-import dotenv from "dotenv";
-import helmet from "helmet";
-import cors from "cors";
 import authRoutes from "./modules/auth/auth.routes";
-import { errorHandler } from "./middlewares/error.middleware";
-
-dotenv.config();
+import walletRoutes from "./modules/wallet/wallet.routes";
+import transactionRoutes from "./modules/transaction/transaction.routes";
+import kycRoutes from "./modules/kyc/kyc.routes";
 
 const app = express();
 
-app.use(helmet());
-app.use(cors());
 app.use(express.json());
 
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "UP" });
-});
-
-app.use("/api/v1/auth", authRoutes);
-
-app.use(errorHandler);
+app.use("/api/auth", authRoutes);
+app.use("/api/wallets", walletRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/kyc", kycRoutes);
 
 export default app;
